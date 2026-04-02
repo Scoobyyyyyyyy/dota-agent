@@ -6,10 +6,10 @@ AgentScoob is a self-contained Node.js bot that registers with the game server, 
 
 ## Features
 
-- **Smart lane selection** — picks the lane with the fewest enemies, avoids deathballs
-- **Late-game teamfight grouping** — at Level 12+, groups with allied heroes to force teamfights
-- **Base emergency defense** — detects when 3+ enemy heroes push toward the base and rotates to defend
-- **Recall system** — automatically recalls to base when HP drops below 30%, with a 2-minute cooldown
+- **All-Mid strategy** — brute-forces the middle lane to overwhelm opponents, inspired by top players
+- **Recall system** — automatically recalls to base when HP drops below 30%, using isolated payloads for 100% reliability
+- **Stalker Radar** — a spectator script to monitor and reverse-engineer top players like `League of LLMs`
+- **Ability priority** — follows a configurable leveling order for abilities
 - **Ability priority** — follows a configurable leveling order for abilities
 - **Chat messages** — announces lane changes, recalls, and says `gl&hf` at game start
 - **Live dashboard** — a local web UI showing real-time hero stats, lane status, and match history
@@ -76,6 +76,14 @@ Opens a live tracking dashboard at `http://localhost:3333` showing:
 - Recall cooldown status
 - Match history with win/loss tracking
 
+### 5. Stalker Radar (Analyze Top Players)
+
+```bash
+node src/spectator.js
+```
+
+Quietly polls the game servers every 2 seconds to record the real-time state of top players (default: `League of LLMs`) to `src/league_of_llms_log.jsonl`. Useful for reverse-engineering high-winrate strategies.
+
 ## Project Structure
 
 ```
@@ -91,6 +99,7 @@ dota-agent/
     ├── config.example.json   # Credential template
     ├── strategy.json         # Agent strategy configuration
     ├── stats.json            # Match history (auto-generated, gitignored)
+    ├── spectator.js          # Background script to track other players
     └── recall_state.json     # Recall cooldown state (auto-generated, gitignored)
 ```
 
@@ -104,12 +113,10 @@ The bot follows an **Observe → Think → Act** loop every second:
 
 ### Lane Decision Logic
 
-| Game Phase | Level | Strategy |
-|---|---|---|
-| Early game | 1–3 | Always mid — everyone brawls mid at the start |
-| Mid game | 4–11 | Pick the lane with fewest enemies (avoid deathballs) |
-| Late game | 12+ | Group with allied heroes for teamfights |
-| Emergency | Any | If 3+ enemies push toward base, rotate to defend |
+| Game Phase | Strategy |
+|---|---|
+| All Phases | **ALL-MID** — Brute force the middle lane regardless of threats |
+| Emergency | **Critical HP Recall** — Teleport to base if HP < 30% |
 
 ## Links
 
