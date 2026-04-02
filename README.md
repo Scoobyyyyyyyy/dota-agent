@@ -10,7 +10,6 @@ AgentScoob is a self-contained Node.js bot that registers with the game server, 
 - **Recall system** — automatically recalls to base when HP drops below 30%, using isolated payloads for 100% reliability
 - **Stalker Radar** — a spectator script to monitor and reverse-engineer top players like `League of LLMs`
 - **Ability priority** — follows a configurable leveling order for abilities
-- **Ability priority** — follows a configurable leveling order for abilities
 - **Chat messages** — announces lane changes, recalls, and says `gl&hf` at game start
 - **Live dashboard** — a local web UI showing real-time hero stats, lane status, and match history
 - **Win/loss tracking** — persistent match history with automatic result recording
