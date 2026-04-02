@@ -36,7 +36,7 @@ const RANGED_ABILITY_PRIORITY = ["volley", "bloodlust", "critical_strike", "fury
 // ── Lane commitment state ────────────────────────────────────────────────────
 let committedLane = null;
 let lastRecallTime = 0;     // timestamp of last recall activation
-let emergencyLock = false;  // sticky lock for base emergencies
+// emergencyLock removed for all-mid strategy
 let lastChatGameId = null;
 let lastMessageLane = null;
 
@@ -112,95 +112,7 @@ function findMyHero(state, agentName) {
   return state.heroes?.find((h) => h.name === agentName) ?? null;
 }
 
-/**
- * Find the lane with the lowest number of enemy units.
- * Checks both creeps and enemy players (heroes).
- * In case of a tie, prefers the lane we are already in to prevent bouncing.
- */
-function chooseLane(state, faction, currentLane) {
-  const enemyFaction = faction === "human" ? "orc" : "human";
-  const pushSign = faction === "human" ? 1 : -1;
-  const lanes = state.lanes;
-  const heroes = state.heroes ?? [];
-
-  let bestLane = "top";
-  let minEnemies = Infinity;
-
-  const enemyHeroCount = { top: 0, mid: 0, bot: 0 };
-  const friendlyHeroCount = { top: 0, mid: 0, bot: 0 };
-  for (const h of heroes) {
-    if (h.alive) {
-      if (h.faction === enemyFaction && enemyHeroCount[h.lane] !== undefined) {
-        enemyHeroCount[h.lane]++;
-      } else if (h.faction === faction && friendlyHeroCount[h.lane] !== undefined) {
-        friendlyHeroCount[h.lane]++;
-      }
-    }
-  }
-
-  for (const laneName of ["top", "mid", "bot"]) {
-    const enemyCreeps = lanes[laneName][enemyFaction] ?? 0;
-    // Enemy heroes are extremely dangerous. We weight heroes heavily to avoid deathballs.
-    let enemyUnits = enemyCreeps + (enemyHeroCount[laneName] * 10);
-
-    const pushDepth = lanes[laneName].frontline * pushSign;
-    // Anti-Dive Protection
-    if (pushDepth >= 85 && enemyHeroCount[laneName] >= friendlyHeroCount[laneName]) {
-      enemyUnits += 1000;
-    }
-
-    // Prefer the lowest enemy count. Tie-break: stick to current lane.
-    if (enemyUnits < minEnemies || (enemyUnits === minEnemies && laneName === currentLane)) {
-      minEnemies = enemyUnits;
-      bestLane = laneName;
-    }
-  }
-
-  return bestLane;
-}
-
-/**
- * Late-game lane selection (Lv12+): group up with friendly heroes.
- * Picks the lane with the most alive allied heroes to force teamfights.
- * Tie-break: stick to current lane to prevent bouncing.
- */
-function chooseLaneLategame(state, faction, currentLane) {
-  const heroes = state.heroes ?? [];
-  const pushSign = faction === "human" ? 1 : -1;
-  const enemyFaction = faction === "human" ? "orc" : "human";
-
-  const friendlyCount = { top: 0, mid: 0, bot: 0 };
-  const enemyCount = { top: 0, mid: 0, bot: 0 };
-  for (const h of heroes) {
-    if (h.alive) {
-      if (h.faction === faction && friendlyCount[h.lane] !== undefined) {
-        friendlyCount[h.lane]++;
-      } else if (h.faction === enemyFaction && enemyCount[h.lane] !== undefined) {
-        enemyCount[h.lane]++;
-      }
-    }
-  }
-
-  let bestLane = currentLane ?? "mid";
-  let maxScore = -Infinity;
-
-  for (const laneName of ["top", "mid", "bot"]) {
-    let score = friendlyCount[laneName];
-    const pushDepth = state.lanes[laneName].frontline * pushSign;
-    
-    // Anti-Dive Protection
-    if (pushDepth >= 85 && enemyCount[laneName] >= friendlyCount[laneName]) {
-      score -= 1000;
-    }
-
-    if (score > maxScore || (score === maxScore && laneName === currentLane)) {
-      maxScore = score;
-      bestLane = laneName;
-    }
-  }
-
-  return bestLane;
-}
+// Lane selection logic removed: we only go mid.
 
 /**
  * Choose an ability when the hero has a pending level-up.
@@ -320,20 +232,7 @@ async function tick(config, strategy) {
       state = await fetchGameState();
     }
 
-    // Handle death to clear emergency stickiness
-    if (myHero && !myHero.alive) {
-      emergencyLock = false;
-    }
-
-    // Release emergency lock gracefully if the Base Emergency lane is successfully pushed out past the river
-    if (myHero && myHero.alive && emergencyLock && committedLane) {
-      const sign = myHero.faction === "human" ? -1 : 1;
-      if (state.lanes[committedLane].frontline * sign <= 0) {
-        log(`✅ Base emergency in ${committedLane} resolved! Returning to standard routing.`);
-        emergencyLock = false;
-        committedLane = null;
-      }
-    }
+    // Emergency lock logic removed.
 
     if (state.winner) {
       log(`🏆  Game over! Winner: ${state.winner} (game ${activeGameId ?? "?"})`);
@@ -357,100 +256,17 @@ async function tick(config, strategy) {
         log(`🏠 RECALL: HP at ${hpPct}% — channeling recall to base!`);
       }
 
-      // Priority 2: Base emergency + recall available → instant teleport to defend
-      // Only in late game (Lv9+) — early/mid game recall is for HP recovery only
-      if (!useRecall && recallOffCooldown && myHero.level >= 9 && !emergencyLock) {
-        const sign = myHero.faction === "human" ? -1 : 1;
-        const enemyFaction = myHero.faction === "human" ? "orc" : "human";
-        const enemyHeroesPerLane = { top: 0, mid: 0, bot: 0 };
-        for (const h of (state.heroes ?? [])) {
-          if (h.faction === enemyFaction && h.alive && enemyHeroesPerLane[h.lane] !== undefined) {
-            enemyHeroesPerLane[h.lane]++;
-          }
-        }
-        for (const laneName of ["top", "mid", "bot"]) {
-          if (enemyHeroesPerLane[laneName] < 3) continue;
-          const heroThreat = enemyHeroesPerLane[laneName] * 10;
-          const threshold = Math.max(30, 80 - heroThreat);
-          if (state.lanes[laneName].frontline * sign >= threshold) {
-            useRecall = true;
-            committedLane = laneName;
-            emergencyLock = true;
-            log(`🏠 RECALL + 🚨 BASE EMERGENCY: Recalling to defend ${laneName}!`);
-            break;
-          }
-        }
-      }
+      // Base emergency recall logic removed.
     }
 
     // ── Lane decision (only when NOT recalling) ────────────────────────────
     let lane;
-    if (!myHero) {
-      // First deploy — go mid (early-game brawl meta)
-      lane = "mid";
-    } else if (myHero.level <= 5) {
-      // Early game (Levels 1-5): always mid — everyone brawls mid at the start
+    if (!useRecall) {
       lane = "mid";
       committedLane = "mid";
-    } else if (!useRecall) {
-      // Standard lane logic (base emergency without recall, or normal play)
-      const sign = myHero.faction === "human" ? -1 : 1;
-      const enemyFaction = myHero.faction === "human" ? "orc" : "human";
-      let baseThreatLane = null;
-
-      if (myHero.level >= 9) {
-        if (emergencyLock && committedLane) {
-          baseThreatLane = committedLane;
-        } else {
-          // Count enemy heroes per lane
-          const enemyHeroesPerLane = { top: 0, mid: 0, bot: 0 };
-          for (const h of (state.heroes ?? [])) {
-            if (h.faction === enemyFaction && h.alive && enemyHeroesPerLane[h.lane] !== undefined) {
-              enemyHeroesPerLane[h.lane]++;
-            }
-          }
-
-          for (const laneName of ["top", "mid", "bot"]) {
-            if (enemyHeroesPerLane[laneName] < 3) continue;
-            // Each enemy hero in a lane lowers the emergency threshold by 10
-            // 3 heroes → 50, 4+ → 40
-            const heroThreat = enemyHeroesPerLane[laneName] * 10;
-            const threshold = Math.max(30, 80 - heroThreat);
-            if (state.lanes[laneName].frontline * sign >= threshold) {
-              baseThreatLane = laneName;
-              log(`⚠️  Threat in ${laneName}: fl=${state.lanes[laneName].frontline}, enemies=${enemyHeroesPerLane[laneName]}, threshold=${threshold}`);
-              emergencyLock = true;
-              break;
-            }
-          }
-        }
-      }
-
-      if (baseThreatLane) {
-        if (committedLane !== baseThreatLane) {
-          log(`🚨 BASE EMERGENCY: Switching to ${baseThreatLane} to defend!`);
-          committedLane = baseThreatLane;
-        }
-      } else if (myHero.level >= 9) {
-        // Late game (Lv9+): group up with friendly heroes for teamfights
-        const best = chooseLaneLategame(state, myHero.faction, committedLane);
-        if (best !== committedLane) {
-          log(`⚔️ LATEGAME: Grouping with allies → ${best}`);
-        }
-        committedLane = best;
-      } else if (!committedLane || !myHero.alive) {
-        // Mid game (Lv6-8): pick the lane with fewest enemies
-        const best = chooseLane(state, myHero.faction, committedLane);
-        if (best !== committedLane) {
-          log(`🎯 ${!committedLane ? "Initial" : "Respawn"} choice (fewest enemies) → ${best}`);
-          committedLane = best;
-        }
-      }
-
-      lane = committedLane;
     } else {
       // Recalling — keep the committed lane for after we arrive at base
-      lane = committedLane ?? "top";
+      lane = "mid";
     }
 
     const abilityChoice = myHero ? chooseAbility(myHero, strategy) : null;
@@ -478,13 +294,18 @@ async function tick(config, strategy) {
         : `Scoob leveling ${abilityChoice}`;
     }
 
-    const payload = {
-      heroClass,
-      heroLane: lane,
-      ...(abilityChoice && { abilityChoice }),
-      ...(useRecall && { action: "recall" }),
-      ...(message && { message }),
-    };
+    let payload;
+    if (useRecall) {
+      payload = { action: "recall" };
+      if (message) payload.message = message;
+    } else {
+      payload = {
+        heroClass,
+        heroLane: lane,
+        ...(abilityChoice && { abilityChoice }),
+        ...(message && { message }),
+      };
+    }
 
     // 4. Act
     const result = await deploy(config.apiKey, payload);

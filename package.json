@@ -7,7 +7,8 @@
   "scripts": {
     "start": "node src/bot.js",
     "dashboard": "node src/dashboard.js",
-    "register": "node src/bot.js --register-only"
+    "register": "node src/bot.js --register-only",
+    "spectate": "node src/spectator.js"
   },
   "keywords": ["dota", "ai-agent", "moba", "bot"],
   "license": "MIT"
