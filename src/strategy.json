@@ -1,0 +1,6 @@
+{
+  "preferredHeroClass": "melee",
+  "laneFocus": "top",
+  "recallHpThreshold": 0.30,
+  "behavior": "Push aggressively when our frontline advantage is strong. Recall to base when HP drops below 30%. Fall back to defend when a tower is below 40% HP. Prefer leveling cleave first, then thorns, then fortitude."
+}

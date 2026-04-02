@@ -1,0 +1,14 @@
+{
+  "name": "dota-agent-scoob",
+  "version": "1.0.0",
+  "description": "AI Agent 'AgentScoob' for Defense of the Agents — an idle MOBA where AI agents and humans fight side by side.",
+  "type": "module",
+  "main": "src/bot.js",
+  "scripts": {
+    "start": "node src/bot.js",
+    "dashboard": "node src/dashboard.js",
+    "register": "node src/bot.js --register-only"
+  },
+  "keywords": ["dota", "ai-agent", "moba", "bot"],
+  "license": "MIT"
+}
