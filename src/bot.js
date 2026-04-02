@@ -21,6 +21,7 @@ const RECALL_STATE_PATH = join(__dirname, "recall_state.json");
 const BASE_URL = "https://www.defenseoftheagents.com";
 const LOOP_INTERVAL_MS = 1_000; // 1 second between cycles
 const RECALL_COOLDOWN_MS = 120_000; // 2-minute cooldown
+const RECALL_CHANNEL_MS = 5_000;   // 2s server channel + 3s safety margin
 const DEFAULT_RECALL_HP_THRESHOLD = 0.30; // 30% HP
 
 // Melee ability priority (from user request)
@@ -197,33 +198,40 @@ async function tick(config, strategy) {
   try {
     // ── Recall Channel Protection ──────────────────────────────────────────────
     // The game server requires a ~2-second channel to successfully teleport.
-    // If we recently activated recall, skip this tick so we don't send a
-    // movement/attack command that interrupts our own channel!
-    if (Date.now() - lastRecallTime < 3000) {
+    // During the channel window we keep re-sending { action: "recall" } every
+    // tick so no movement command can slip in and cancel the channel.
+    const isChannelingRecall = Date.now() - lastRecallTime < RECALL_CHANNEL_MS;
+
+    if (isChannelingRecall) {
+      log(`🏠 RECALL CHANNEL: re-sending recall (${Math.round((Date.now() - lastRecallTime) / 1000)}s into channel)`);
+      await deploy(config.apiKey, { action: "recall" });
       return "ok";
     }
 
-    // 2. Observe — scan all games to find our hero
+    // 2. Observe — scan all games to find our hero (parallel fetches)
     let state = null;
     let myHero = null;
     let activeGameId = null;
 
-    for (let g = 1; g <= 5; g++) {
-      try {
-        const s = await fetchGameState(g);
-        const hero = findMyHero(s, config.agentName);
-        const listed =
-          s.agents?.human?.includes(config.agentName) ||
-          s.agents?.orc?.includes(config.agentName);
+    const results = await Promise.allSettled(
+      [1, 2, 3, 4, 5].map((g) =>
+        fetchGameState(g).then((s) => ({ s, g }))
+      )
+    );
 
-        if (hero || listed) {
-          state = s;
-          myHero = hero;
-          activeGameId = g;
-          break;
-        }
-      } catch {
-        // game slot may not exist
+    for (const r of results) {
+      if (r.status !== "fulfilled") continue;
+      const { s, g } = r.value;
+      const hero = findMyHero(s, config.agentName);
+      const listed =
+        s.agents?.human?.includes(config.agentName) ||
+        s.agents?.orc?.includes(config.agentName);
+
+      if (hero || listed) {
+        state = s;
+        myHero = hero;
+        activeGameId = g;
+        break;
       }
     }
 
@@ -246,8 +254,6 @@ async function tick(config, strategy) {
     let useRecall = false;
 
     if (myHero && myHero.alive) {
-      const recallOffCooldown = Date.now() - lastRecallTime > RECALL_COOLDOWN_MS;
-
       // Priority 1: Critical HP — recall immediately
       if (shouldRecall(myHero, strategy)) {
         useRecall = true;
@@ -307,10 +313,7 @@ async function tick(config, strategy) {
       };
     }
 
-    // 4. Act
-    const result = await deploy(config.apiKey, payload);
-
-    // ── Update recall state ────────────────────────────────────────────────
+    // ── Update recall state BEFORE deploy so channel protection starts immediately
     if (useRecall) {
       lastRecallTime = Date.now();
       // Write recall state to shared file for dashboard consumption
@@ -319,6 +322,9 @@ async function tick(config, strategy) {
         cooldownEnds: lastRecallTime + RECALL_COOLDOWN_MS,
       });
     }
+
+    // 4. Act
+    const result = await deploy(config.apiKey, payload);
 
     // ── Pretty log ─────────────────────────────────────────────────────────
     const heroInfo = myHero
